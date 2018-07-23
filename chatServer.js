@@ -1,9 +1,10 @@
 // setup requirements
 const http = require('http');
-const fs = require('fs');
 const mime = require('mime-types');
-const urlParser = require('url');
+const Assistant = require('./assistant');
 const port = process.env.PORT || 5000;
+
+let messages = [];
 
 http.createServer(handleRequest).listen(port);
 console.log('Listening on port:' + port);
@@ -11,32 +12,35 @@ console.log('Listening on port:' + port);
 function handleRequest(request, response) {
     console.log("request.url = " + request.url);
 
-    let url = urlParser.parse(request.url);
-    let path = url.pathname;
-
-    let fileName;
-    let data;
-    let type = 'text/plain';
+    let assistant = new Assistant(request, response);
+    let path = assistant.path;
 
     try {
-        if (request.url === '/') {
-            fileName = 'index.html'
+        if (path === '/') {
+            assistant.sendFile('index.html');
+        } else if (path === '/chat' && request.method === 'POST') {
+            console.log('Parsing the POST');
+            assistant.parsePostParams((params) => {
+                let message = {
+                    name: 'Anonymous',
+                    body: params.body,
+                    when: new Date().toISOString()
+                }
+                messages.push(message);
+                data = JSON.stringify(messages);
+                type = mime.lookup('json');
+                assistant.finishResponse(type, data);
+            })
+        } else if (path === '/chat' && request.method === 'GET') {
+            console.log('Received GET request for messages')
+            data = JSON.stringify(messages);
+            type = mime.lookup('json');
+            assistant.finishResponse(type, data);
         } else {
-            fileName = request.url.slice(1)
+            fileName = path.slice(1)
+            assistant.sendFile(fileName);
         }
-        data = fs.readFileSync(fileName);
-        type = mime.lookup(fileName);
-        response.statusCode = 200;
     } catch (error) {
-        console.log(error);
-        data = "Error: " + error.toString();
-        response.statusCode = 404;
+        assistant.sendError(404, "Error: " + error.toString());
     }
-
-    let contentType = `${type}; charset=utf-8`
-
-    response.setHeader('Content-Type', contentType)
-    response.statusCode = 200;
-    response.write(data);
-    response.end();
 }
